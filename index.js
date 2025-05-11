@@ -15,7 +15,8 @@ const client = new Client({
 // Whitelist ng mga links na hindi dapat i-delete
 const WHITELISTED_LINKS = [
   'https://tgreward.shop/pinaysecret.php',
-  'https://t.me/vlpcontentbot?startapp=product'
+  'https://t.me/vlpcontentbot',
+  't.me/vlpcontentbot'
 ];
 
 // Stats counter
@@ -24,6 +25,9 @@ let statsCounter = {
   messagesDeleted: 0,
   lastReset: new Date()
 };
+
+// Improved URL detection regex
+const URL_PATTERN = /(https?:\/\/[^\s]+)|(www\.[^\s]+)|([a-zA-Z0-9-]+\.[a-zA-Z]{2,}(\.[a-zA-Z]{2,})?\/[^\s]*)|(\bt\.me\/[^\s]+)/gi;
 
 // Event kapag ready na ang bot
 client.once('ready', () => {
@@ -34,51 +38,81 @@ client.once('ready', () => {
   client.user.setActivity('Protecting the server', { type: 'Watching' });
 });
 
+// Helper function to check if a url is whitelisted
+function isWhitelisted(url) {
+  if (!url) return true; // If no URL is provided, consider it whitelisted
+  
+  const lowerUrl = url.toLowerCase();
+  
+  return WHITELISTED_LINKS.some(whitelistedUrl => {
+    const lowerWhitelistedUrl = whitelistedUrl.toLowerCase();
+    return lowerUrl.includes(lowerWhitelistedUrl);
+  });
+}
+
 // Event kapag may bagong mensahe
 client.on('messageCreate', async (message) => {
-  // Ignore messages from the bot itself
-  if (message.author.bot) return;
-  
-  // Increment messages checked counter
-  statsCounter.messagesChecked++;
-  
-  // Check if message contains links (basic URL check)
-  const messageContent = message.content.toLowerCase();
-  const containsLink = messageContent.includes('http://') || messageContent.includes('https://');
-  
-  if (containsLink) {
-    // Check if message contains whitelisted links
-    const containsWhitelistedLink = WHITELISTED_LINKS.some(link => 
-      messageContent.includes(link.toLowerCase())
-    );
+  try {
+    // Ignore messages from the bot itself
+    if (message.author.bot) return;
     
-    // Kung may link pero hindi whitelisted, i-delete ang message
-    if (!containsWhitelistedLink) {
-      try {
-        await message.delete();
-        statsCounter.messagesDeleted++;
-        console.log(`Deleted message from ${message.author.tag} containing prohibited link`);
-        
-        // Mag-send ng warning sa user
+    // Check permissions first - bot needs permission to delete messages
+    if (!message.guild) return; // Skip DMs
+    
+    const botMember = message.guild.members.cache.get(client.user.id);
+    if (!botMember.permissions.has(PermissionFlagsBits.ManageMessages)) {
+      console.log('Bot lacks permission to delete messages in this channel');
+      return;
+    }
+    
+    // Increment messages checked counter
+    statsCounter.messagesChecked++;
+    
+    // Debug log
+    console.log(`Checking message from ${message.author.tag}: "${message.content}"`);
+    
+    // Extract all URLs from the message
+    const messageContent = message.content;
+    const foundUrls = messageContent.match(URL_PATTERN);
+    
+    // If message contains URLs
+    if (foundUrls && foundUrls.length > 0) {
+      console.log(`Found URLs in message: ${foundUrls.join(', ')}`);
+      
+      // Check each URL against whitelist
+      const hasProhibitedUrl = foundUrls.some(url => !isWhitelisted(url));
+      
+      if (hasProhibitedUrl) {
         try {
-          const warningEmbed = new EmbedBuilder()
-            .setColor('#ff0000')
-            .setTitle('⚠️ Message Deleted')
-            .setDescription('Ang iyong mensahe ay na-delete dahil naglalaman ito ng hindi pinapayagang link.')
-            .addFields(
-              { name: 'Bakit?', value: 'Para maprotektahan ang server mula sa spam at phishing links.' },
-              { name: 'Paano maiwasan?', value: 'Huwag mag-post ng links maliban sa mga approved sources.' }
-            )
-            .setTimestamp();
-            
-          await message.author.send({ embeds: [warningEmbed] });
-        } catch (err) {
-          console.log(`Could not send DM to ${message.author.tag}`);
+          await message.delete();
+          statsCounter.messagesDeleted++;
+          console.log(`Deleted message from ${message.author.tag} containing prohibited link`);
+          
+          // Mag-send ng warning sa user
+          try {
+            const warningEmbed = new EmbedBuilder()
+              .setColor('#ff0000')
+              .setTitle('⚠️ Message Deleted')
+              .setDescription('Ang iyong mensahe ay na-delete dahil naglalaman ito ng hindi pinapayagang link.')
+              .addFields(
+                { name: 'Bakit?', value: 'Para maprotektahan ang server mula sa spam at phishing links.' },
+                { name: 'Paano maiwasan?', value: 'Huwag mag-post ng links maliban sa mga approved sources.' }
+              )
+              .setTimestamp();
+              
+            await message.author.send({ embeds: [warningEmbed] });
+          } catch (err) {
+            console.log(`Could not send DM to ${message.author.tag}: ${err.message}`);
+          }
+        } catch (error) {
+          console.error('Error deleting message:', error);
         }
-      } catch (error) {
-        console.error('Error deleting message:', error);
+      } else {
+        console.log('All URLs in message are whitelisted');
       }
     }
+  } catch (err) {
+    console.error('Error in message processing:', err);
   }
 });
 
@@ -141,6 +175,21 @@ client.on('messageCreate', async (message) => {
       .setFooter({ text: 'Admin commands only' });
       
     await message.channel.send({ embeds: [helpEmbed] });
+  } else if (command === 'test' && isAdmin) {
+    await message.channel.send('🔍 Testing link detection...');
+    // Test some example links
+    const testLinks = [
+      'Check out https://example.com',
+      'Visit www.google.com for more info',
+      'Go to discord.com/nitro',
+      't.me/testchannel',
+      'https://t.me/vlpcontentbot?startapp=Product'
+    ];
+    
+    for (const test of testLinks) {
+      const foundUrls = test.match(URL_PATTERN);
+      await message.channel.send(`Test: "${test}"\nDetected URLs: ${foundUrls ? foundUrls.join(', ') : 'None'}`);
+    }
   }
 });
 
