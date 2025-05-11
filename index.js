@@ -1,8 +1,8 @@
 // Discord Anti-Spam Bot na may Whitelist
 require('dotenv').config();
-const { Client, GatewayIntentBits, Partials, EmbedBuilder } = require('discord.js');
+const { Client, GatewayIntentBits, Partials, EmbedBuilder, PermissionFlagsBits } = require('discord.js');
 
-// Initialize new Discord client
+// Initialize new Discord client with proper intents
 const client = new Client({
   intents: [
     GatewayIntentBits.Guilds,
@@ -30,8 +30,8 @@ client.once('ready', () => {
   console.log(`Logged in as ${client.user.tag}!`);
   console.log('Anti-spam protection is now active!');
   
-  // Set bot status
-  client.user.setActivity('Protecting the server', { type: 'WATCHING' });
+  // Set bot status - updated to use the new format
+  client.user.setActivity('Protecting the server', { type: 'Watching' });
 });
 
 // Event kapag may bagong mensahe
@@ -89,8 +89,8 @@ client.on('messageCreate', async (message) => {
   const args = message.content.slice(1).trim().split(/ +/);
   const command = args.shift().toLowerCase();
   
-  // Check if user has admin permissions for admin commands
-  const isAdmin = message.member && message.member.permissions.has('ADMINISTRATOR');
+  // Check if user has admin permissions for admin commands - updated to use new permissions format
+  const isAdmin = message.member && message.member.permissions.has(PermissionFlagsBits.Administrator);
   
   if (command === 'stats' && isAdmin) {
     const uptime = Math.floor((new Date() - statsCounter.lastReset) / 1000);
