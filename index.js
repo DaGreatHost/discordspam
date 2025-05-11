@@ -15,9 +15,11 @@ const client = new Client({
 // Whitelist ng mga links na hindi dapat i-delete
 const WHITELISTED_LINKS = [
   'https://tgreward.shop/pinaysecret.php',
-  'https://t.me/vlpcontentbot',
-  't.me/vlpcontentbot'
+  'https://t.me/vlpcontentbot?startapp=product'
 ];
+
+// Improved URL detection regex
+const URL_REGEX = /(https?:\/\/(?:www\.|(?!www))[a-zA-Z0-9][a-zA-Z0-9-]+[a-zA-Z0-9]\.[^\s]{2,}|www\.[a-zA-Z0-9][a-zA-Z0-9-]+[a-zA-Z0-9]\.[^\s]{2,}|https?:\/\/(?:www\.|(?!www))[a-zA-Z0-9]+\.[^\s]{2,}|www\.[a-zA-Z0-9]+\.[^\s]{2,})/gi;
 
 // Stats counter
 let statsCounter = {
@@ -26,8 +28,15 @@ let statsCounter = {
   lastReset: new Date()
 };
 
-// Improved URL detection regex
-const URL_PATTERN = /(https?:\/\/[^\s]+)|(www\.[^\s]+)|([a-zA-Z0-9-]+\.[a-zA-Z]{2,}(\.[a-zA-Z]{2,})?\/[^\s]*)|(\bt\.me\/[^\s]+)/gi;
+// Debug mode for troubleshooting (set to true to enable console logs)
+const DEBUG_MODE = true;
+
+// Function to log debug messages
+function debugLog(message) {
+  if (DEBUG_MODE) {
+    console.log(`[DEBUG] ${message}`);
+  }
+}
 
 // Event kapag ready na ang bot
 client.once('ready', () => {
@@ -38,81 +47,69 @@ client.once('ready', () => {
   client.user.setActivity('Protecting the server', { type: 'Watching' });
 });
 
-// Helper function to check if a url is whitelisted
-function isWhitelisted(url) {
-  if (!url) return true; // If no URL is provided, consider it whitelisted
-  
-  const lowerUrl = url.toLowerCase();
-  
-  return WHITELISTED_LINKS.some(whitelistedUrl => {
-    const lowerWhitelistedUrl = whitelistedUrl.toLowerCase();
-    return lowerUrl.includes(lowerWhitelistedUrl);
-  });
+// Helper function to check if a link is whitelisted
+function isLinkWhitelisted(link) {
+  return WHITELISTED_LINKS.some(whitelistedLink => 
+    link.toLowerCase().includes(whitelistedLink.toLowerCase())
+  );
 }
 
 // Event kapag may bagong mensahe
 client.on('messageCreate', async (message) => {
-  try {
-    // Ignore messages from the bot itself
-    if (message.author.bot) return;
+  // Ignore messages from the bot itself
+  if (message.author.bot) return;
+  
+  // Increment messages checked counter
+  statsCounter.messagesChecked++;
+  
+  // Get the message content
+  const messageContent = message.content;
+  
+  debugLog(`Checking message: ${messageContent}`);
+  
+  // Check if message contains links using regex
+  const links = messageContent.match(URL_REGEX);
+  
+  if (links && links.length > 0) {
+    debugLog(`Found ${links.length} links in the message`);
     
-    // Check permissions first - bot needs permission to delete messages
-    if (!message.guild) return; // Skip DMs
+    // Check if any of the found links are not whitelisted
+    const hasNonWhitelistedLink = links.some(link => !isLinkWhitelisted(link));
     
-    const botMember = message.guild.members.cache.get(client.user.id);
-    if (!botMember.permissions.has(PermissionFlagsBits.ManageMessages)) {
-      console.log('Bot lacks permission to delete messages in this channel');
-      return;
-    }
-    
-    // Increment messages checked counter
-    statsCounter.messagesChecked++;
-    
-    // Debug log
-    console.log(`Checking message from ${message.author.tag}: "${message.content}"`);
-    
-    // Extract all URLs from the message
-    const messageContent = message.content;
-    const foundUrls = messageContent.match(URL_PATTERN);
-    
-    // If message contains URLs
-    if (foundUrls && foundUrls.length > 0) {
-      console.log(`Found URLs in message: ${foundUrls.join(', ')}`);
-      
-      // Check each URL against whitelist
-      const hasProhibitedUrl = foundUrls.some(url => !isWhitelisted(url));
-      
-      if (hasProhibitedUrl) {
+    if (hasNonWhitelistedLink) {
+      try {
+        debugLog(`Deleting message from ${message.author.tag} containing non-whitelisted link`);
+        await message.delete();
+        statsCounter.messagesDeleted++;
+        console.log(`Deleted message from ${message.author.tag} containing prohibited link`);
+        
+        // Debug output all links found
+        links.forEach((link, index) => {
+          debugLog(`Link ${index + 1}: ${link} - Whitelisted: ${isLinkWhitelisted(link)}`);
+        });
+        
+        // Mag-send ng warning sa user
         try {
-          await message.delete();
-          statsCounter.messagesDeleted++;
-          console.log(`Deleted message from ${message.author.tag} containing prohibited link`);
-          
-          // Mag-send ng warning sa user
-          try {
-            const warningEmbed = new EmbedBuilder()
-              .setColor('#ff0000')
-              .setTitle('⚠️ Message Deleted')
-              .setDescription('Ang iyong mensahe ay na-delete dahil naglalaman ito ng hindi pinapayagang link.')
-              .addFields(
-                { name: 'Bakit?', value: 'Para maprotektahan ang server mula sa spam at phishing links.' },
-                { name: 'Paano maiwasan?', value: 'Huwag mag-post ng links maliban sa mga approved sources.' }
-              )
-              .setTimestamp();
-              
-            await message.author.send({ embeds: [warningEmbed] });
-          } catch (err) {
-            console.log(`Could not send DM to ${message.author.tag}: ${err.message}`);
-          }
-        } catch (error) {
-          console.error('Error deleting message:', error);
+          const warningEmbed = new EmbedBuilder()
+            .setColor('#ff0000')
+            .setTitle('⚠️ Message Deleted')
+            .setDescription('Ang iyong mensahe ay na-delete dahil naglalaman ito ng hindi pinapayagang link.')
+            .addFields(
+              { name: 'Bakit?', value: 'Para maprotektahan ang server mula sa spam at phishing links.' },
+              { name: 'Paano maiwasan?', value: 'Huwag mag-post ng links maliban sa mga approved sources.' }
+            )
+            .setTimestamp();
+            
+          await message.author.send({ embeds: [warningEmbed] });
+        } catch (err) {
+          console.log(`Could not send DM to ${message.author.tag}: ${err.message}`);
         }
-      } else {
-        console.log('All URLs in message are whitelisted');
+      } catch (error) {
+        console.error('Error deleting message:', error);
       }
+    } else {
+      debugLog('Message contains only whitelisted links - not deleting');
     }
-  } catch (err) {
-    console.error('Error in message processing:', err);
   }
 });
 
@@ -170,26 +167,40 @@ client.on('messageCreate', async (message) => {
         { name: '!stats', value: 'Ipakita ang bot statistics' },
         { name: '!resetstats', value: 'I-reset ang bot statistics' },
         { name: '!whitelist', value: 'Ipakita ang mga whitelisted links' },
-        { name: '!help', value: 'Ipakita ang help message na ito' }
+        { name: '!help', value: 'Ipakita ang help message na ito' },
+        { name: '!debug', value: 'I-toggle ang debug mode' }
       )
       .setFooter({ text: 'Admin commands only' });
       
     await message.channel.send({ embeds: [helpEmbed] });
-  } else if (command === 'test' && isAdmin) {
-    await message.channel.send('🔍 Testing link detection...');
-    // Test some example links
+  } else if (command === 'debug' && isAdmin) {
+    // Toggle debug mode
+    DEBUG_MODE = !DEBUG_MODE;
+    await message.channel.send(`✅ Debug mode is now ${DEBUG_MODE ? 'ON' : 'OFF'}.`);
+  } else if (command === 'testlinks' && isAdmin) {
+    // For testing link detection
     const testLinks = [
-      'Check out https://example.com',
-      'Visit www.google.com for more info',
-      'Go to discord.com/nitro',
-      't.me/testchannel',
-      'https://t.me/vlpcontentbot?startapp=Product'
+      'https://discord.com',
+      'http://example.com',
+      'www.google.com',
+      'https://tgreward.shop/pinaysecret.php'
     ];
     
-    for (const test of testLinks) {
-      const foundUrls = test.match(URL_PATTERN);
-      await message.channel.send(`Test: "${test}"\nDetected URLs: ${foundUrls ? foundUrls.join(', ') : 'None'}`);
-    }
+    const testEmbed = new EmbedBuilder()
+      .setColor('#ff00ff')
+      .setTitle('Link Detection Test')
+      .setDescription('Testing link detection with the following links:');
+      
+    testLinks.forEach((link, index) => {
+      testEmbed.addFields({
+        name: `Link #${index + 1}: ${link}`,
+        value: `Detected as link: ${URL_REGEX.test(link)}\nWhitelisted: ${isLinkWhitelisted(link)}`
+      });
+      // Reset regex
+      URL_REGEX.lastIndex = 0;
+    });
+    
+    await message.channel.send({ embeds: [testEmbed] });
   }
 });
 
